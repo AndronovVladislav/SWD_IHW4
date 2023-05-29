@@ -49,7 +49,7 @@ class Authorizer(object):
                 if token_is_valid:
                     return response[0]
 
-                next_day = datetime.now() + timedelta(minutes=20)
+                next_day = datetime.now() + timedelta(days=1)
                 jwt_token = jwt.encode({'userID': str(user_id), 'exp': next_day}, 'kamkino')
 
                 if response:

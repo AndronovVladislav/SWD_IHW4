@@ -1,5 +1,9 @@
-from sqlalchemy import select
+from utils.microservice_component_interface import MicroserviceComponentInterface
 
+from sqlalchemy import select
+from accessify import implements, private
+
+@implements(MicroserviceComponentInterface)
 class MenuSelector:
     def __init__(self, db):
         self.__dishes = db.dishes
@@ -8,7 +12,7 @@ class MenuSelector:
         self.__error_message = 'Error code: 404 - Not found<br>'
         self.__error_code = 404
 
-    def get_menu(self):
+    def action(self):
         with self.__engine.connect() as connection:
             connection.begin()
 
@@ -25,5 +29,10 @@ class MenuSelector:
 
             return response
 
+    @private
     def make_error(self, error_description):
         return (self.__error_message + error_description, self.__error_code)
+
+    @private
+    def validate_data(self, **kwargs):
+        pass

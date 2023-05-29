@@ -8,7 +8,7 @@ from accessify import private, implements
 
 
 @implements(MicroserviceInterface)
-class UsersManager:
+class UsersMicroservice:
     def __init__(self, dialect, user, password, host, port, db, app, **configs):
         self.__app = app
         self.__app.config['SQLALCHEMY_DATABASE_URI'] = '{0}+pymysql://{1}:{2}@{3}:{4}/{5}'.format(dialect, user, password, host, port, db)

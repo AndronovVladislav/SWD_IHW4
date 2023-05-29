@@ -5,6 +5,7 @@ from flask import request, make_response
 from sqlalchemy import select, insert
 import uuid, hashlib
 
+
 @implements(MicroserviceComponentInterface)
 class Registrar(object):
     def __init__(self, dwh):

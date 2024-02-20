@@ -4,10 +4,10 @@ from .menu_selector import MenuSelector
 from .order_maker import OrderMaker
 from .menu_informant import MenuInformant
 from .orders_processor import OrdersProcessor
-from menu_microservice.dishes_managament.create_dish import CreateDish
-from menu_microservice.dishes_managament.remove_dish import RemoveDish
-from menu_microservice.dishes_managament.update_price import UpdatePrice
-from menu_microservice.dishes_managament.update_quantity import UpdateQuantity
+from menu.dishes_managament.create_dish import CreateDish
+from menu.dishes_managament.remove_dish import RemoveDish
+from menu.dishes_managament.update_price import UpdatePrice
+from menu.dishes_managament.update_quantity import UpdateQuantity
 
 from accessify import private, implements
 from threading import Thread

@@ -1,13 +1,15 @@
-from accessify import private
+from abc import abstractmethod
+
 
 class MicroserviceComponentInterface:
-    def action(self):
-        pass
+    @abstractmethod
+    def on_execute(self):
+        """Выполняет основное действие"""
 
-    @private
+    @abstractmethod
     def make_error(self, error_description):
-        pass
+        """Формирует сообщение об ошибке"""
 
-    @private
+    @abstractmethod
     def validate_data(self, **kwargs):
-        pass
+        """Проверяет данные на корректность"""

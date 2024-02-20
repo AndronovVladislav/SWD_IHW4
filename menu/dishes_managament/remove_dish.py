@@ -6,6 +6,7 @@ import jwt
 from datetime import datetime, timedelta
 from accessify import private, implements
 
+
 @implements(MicroserviceComponentInterface)
 class RemoveDish:
     def __init__(self, db):

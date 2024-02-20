@@ -1,17 +1,20 @@
+import random
+
+import requests
 from bs4 import BeautifulSoup
-import requests, random
-from database import DB
 from sqlalchemy import insert
 
+from utils.database import DB
 
-if __name__ == '__main__':
+
+def main():
     soup = BeautifulSoup(requests.get('https://www.mealty.ru/').text, 'lxml')
 
     names = soup.findAll('div', 'meal-card__name')
     desciptions = soup.findAll('div', 'meal-card__description')
     prices = [x for i, x in enumerate(soup.findAll('div', 'meal-card__price')) if i % 2 == 0]
     info = [[names[i].text, desciptions[i].text, int(prices[i].text)] for i in range(len(names))]
-    
+
     db = DB('mysql', 'root', 'vlad', '127.0.0.1', '3306', 'IHW4')
     with db.engine.connect() as connection:
         connection.begin()
@@ -28,3 +31,7 @@ if __name__ == '__main__':
 
         connection.execute(insert(db.dishes), arranged_info)
         connection.commit()
+
+
+if __name__ == '__main__':
+    ...

@@ -1,13 +1,15 @@
-from accessify import private
+from abc import abstractmethod
+
 
 class MicroserviceInterface:
-    @private
+    @abstractmethod
     def configure(self, **configs):
-        pass
+        """Задаёт изначальные настройки микросервиса"""
 
-    @private
+    @abstractmethod
     def add_endpoint(self, endpoint, endpoint_name, handler, methods, *args, **kwargs):
-        pass
+        """Создаёт новый эндпоинт микросервиса"""
 
+    @abstractmethod
     def run(self, **kwargs):
-        pass
+        """Запускает микросервис"""

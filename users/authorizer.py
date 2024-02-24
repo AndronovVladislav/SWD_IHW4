@@ -1,102 +1,54 @@
+import hashlib
 from datetime import datetime, timedelta
 
-import hashlib
-import jwt
-from flask import request, make_response
-from accessify import private, implements
-from sqlalchemy import select, insert, update
+from flask import make_response, redirect, render_template, request, Response
+from sqlalchemy.orm import Session as DBSession
 
-from utils.microservice_component_interface import MicroserviceComponentInterface
+from common.jwt_mixin import JWTMixin
+from common.session_mixin import SessionMixin
+from users.locals import AUTH_TEMPLATE
+from users.models import User, Session
+from common.db_manager import DBManager
+from common.microservice_component_interface import MicroserviceComponentInterface
 
 
-@implements(MicroserviceComponentInterface)
-class Authorizer(object):
-    def __init__(self, db):
-        self.__users = db.users
-        self.__sessions = db.sessions
-        self.__engine = db.engine
+class AuthorizerComponent(MicroserviceComponentInterface, JWTMixin, SessionMixin):
+    def __init__(self, db_manager: DBManager, register_url: str):
+        self.db_manager = db_manager
 
-        self.__error_message = 'Error code: 409 - CONFLICT<br>'
-        self.__error_code = 409
-        self.__post_form = \
-            '''
-            <form method="POST"> 
-                <div><label>Username: <input type="text" name="username"></label></div>
-                <div><label>Password: <input type="password" name="password"></label></div>
-                <input type="submit" value="Enter">
-            </form>
-            '''
+        self.register_url = register_url
 
-    def action(self):
-        if request.method == 'POST':
-            params = request.get_json()
+    def on_execute(self) -> Response:
+        if not request.method == 'POST':
+            return make_response(render_template(AUTH_TEMPLATE), 300)
 
-            with self.__engine.connect() as connection:
-                connection.begin()
+        with DBSession(self.db_manager.engine) as session:
+            user = session.query(User).filter(User.username == request.form['username']).first()
 
-                user_info = connection.execute(select(self.__users.c.id, self.__users.c.password_hash) \
-                                               .where(self.__users.c.username == params['username'])) \
-                    .fetchone()
+            if not user:
+                return redirect(self.register_url)
 
-                if not user_info:
-                    return self.make_error('User doesn\'t exist')
+            if not self.password_is_correct(request.form['password'], user.hashed_password):
+                return make_response(render_template(AUTH_TEMPLATE), 300)
 
-                user_id, user_password_hash = user_info
+            user_session = self.get_session(session, user.id)
 
-                response, token_is_valid = self.validate_data(params=params,
-                                                              user_password_hash=user_password_hash,
-                                                              user_id=user_id,
-                                                              connection=connection)
+            next_day = datetime.now() + timedelta(days=1)
+            jwt_token = self.emit_token({'userID': str(user.id), 'exp': next_day})
 
-                if token_is_valid:
-                    return response[0]
+            if not user_session:
+                session.add(Session(user_id=user.id, session_token=jwt_token))
+            elif not self.validate_data(user_session.session_token):
+                user_session.session_token = jwt_token
+                session.add(user_session)
 
-                next_day = datetime.now() + timedelta(days=1)
-                jwt_token = jwt.encode({'userID': str(user_id), 'exp': next_day}, 'kamkino')
+            session.commit()
+            return make_response(f'Welcome, {user.username}!', 200)
 
-                if response:
-                    connection.execute(update(self.__sessions)
-                                       .where(self.__sessions.c.user_id == user_id)
-                                       .values(session_token=jwt_token))
-                else:
-                    connection.execute(insert(self.__sessions)
-                                       .values(session_token=jwt_token, user_id=user_id,
-                                               expires_at=next_day))
-                connection.commit()
-                return jwt_token
-
-        return self.__post_form
-
-    def check_password(self, hashed_password, user_password):
+    @staticmethod
+    def password_is_correct(user_password: str, hashed_password: str) -> bool:
         password, salt = hashed_password.split(':')
-        return password != str(hashlib.sha256(user_password.encode() + salt.encode()).hexdigest())
+        return password == str(hashlib.sha256(user_password.encode() + salt.encode()).hexdigest())
 
-    @private
-    def make_error(self, error_description):
-        return make_response(self.__error_message + error_description, self.__error_code)
-
-    @private
-    def validate_data(self, **kwargs):
-        params = kwargs['params']
-        user_password_hash = kwargs['user_password_hash']
-        connection = kwargs['connection']
-        user_id = kwargs['user_id']
-
-        if not user_password_hash or self.check_password(user_password_hash, params['password']):
-            return (self.make_error('User doesn\'t exist or incorrect password'), False)
-
-        jwt_token = connection.execute(select(self.__sessions.c.session_token) \
-                                       .where(self.__sessions.c.user_id == user_id)) \
-            .fetchone()
-        if jwt_token:
-            try:
-                # -timedelta(hours=3) нужно потому, что при декодинге почему-то время увеличивается на 3 часа
-                decoded_token = jwt.decode(jwt_token[0], 'kamkino', algorithms=['HS256'])
-                expires_at = datetime.fromtimestamp(decoded_token['exp']) - timedelta(hours=3)
-                if expires_at > datetime.now():
-                    return (jwt_token, True)
-                else:
-                    return (jwt_token, False)
-            except jwt.ExpiredSignatureError:
-                return (jwt_token, False)
-        return (False, False)
+    def validate_data(self, jwt_token: str) -> bool:
+        return self.validate_token(jwt_token)

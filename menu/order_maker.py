@@ -1,94 +1,69 @@
-from utils.microservice_component_interface import MicroserviceComponentInterface
+from typing import Iterable, Optional
 
-from flask import request, make_response
-from sqlalchemy import select, insert, update, desc
-from datetime import datetime, timedelta
-from accessify import private, implements
-import jwt
+from flask import request, make_response, Response
+from sqlalchemy.orm import Session as DBSession
+
+from common.db_manager import DBManager
+from common.jwt_mixin import JWTMixin
+from common.session_mixin import SessionMixin
+from common.microservice_component_interface import MicroserviceComponentInterface
+from menu.models import Dish, Order, OrderDish
+from users.models import Session, User
 
 
-@implements(MicroserviceComponentInterface)
-class OrderMaker:
-    def __init__(self, db):
-        self.__dishes = db.dishes
-        self.__sessions = db.sessions
-        self.__orders = db.orders
-        self.__order_dish = db.order_dish
-        self.__engine = db.engine
+class OrderMaker(MicroserviceComponentInterface, JWTMixin, SessionMixin):
+    def __init__(self, db_manager: DBManager):
+        self.db_manager = db_manager
 
-        self.__error_message = 'Error code: 409 - Conflict<br>'
-        self.__error_code = 409
+    def on_execute(self):
+        with DBSession(self.db_manager.engine) as session:
+            user = session.query(User).filter(User.username == request.form['username']).first()
 
-    def action(self):
-        params = request.get_json()
+            if not user:
+                return make_response('User doesn\'t exist!', 403)
 
-        with self.__engine.connect() as connection:
-            connection.begin()
+            session_info = self.get_session(session, user.id)
 
-            user_info = connection.execute(select(self.__sessions.c.session_token)\
-                                           .where(self.__sessions.c.user_id == params['user_id']))\
-                                           .fetchone()
+            dishes_names = request.form.getlist('dishes[]')
+            quantities = request.form.getlist('quantities[]')
+            dishes = zip(dishes_names, quantities)
 
-            error, data_correct = self.validate_data(user_info=user_info, params=params, connection=connection)
-            if not data_correct:
-                return error
+            response, data_is_correct = self.validate_data(session, session_info, *dishes)
+            if not data_is_correct:
+                return response
 
-            connection.execute(insert(self.__orders)
-                               .values(user_id=params['user_id'],
-                                       special_requests=(params['special_requests'] if
-                                                         params.get('special_requests') else
-                                                         '')))
+            new_order = Order(user_id=user.id, special_requests=request.form.get('special_requests'))
+            session.add(new_order)
 
-            order_id = connection.execute(select(self.__orders.c.id).order_by(desc(self.__orders.c.id))).fetchone()[0]
-            for dish, amount in params['dishes'].items():
-                dish_id, price = connection.execute(select(self.__dishes.c.id, self.__dishes.c.price).where(self.__dishes.c.name == dish)).fetchone()
-                
-                connection.execute(insert(self.__order_dish)
-                                   .values(order_id=order_id,
-                                           dish_id=dish_id,
-                                           quantity=amount,
-                                           price=price))
+            for dish_name, amount in dishes:
+                dish = session.query(Dish).filter(Dish.name == dish_name)
+                session.add(OrderDish(order_id=new_order.id, dish_id=dish.id, quantity=amount, price=dish.price))
 
-                connection.execute(update(self.__dishes)
-                                   .where(self.__dishes.c.id == dish_id)
-                                   .values(quantity=self.__dishes.c.quantity - amount))
+                dish.quantity -= amount
+                session.add(dish)
 
-            connection.commit()
+            session.commit()
 
         return make_response('Your order registered!', 200)
 
-    @private
-    def make_error(self, error_description):
-        return make_response(self.__error_message + error_description, self.__error_code)
+    def validate_data(self,
+                      session: DBSession,
+                      session_info: Session,
+                      dishes: Iterable[tuple[str, int]],
+                      ) -> tuple[Optional[Response], bool]:
+        if not self.validate_token(session_info.session_token):
+            return self.make_error('Session token expired, please reauthorize', 401), False
 
-    @private
-    def validate_data(self, **kwargs):
-        user_info = kwargs['user_info']
-        params = kwargs['params']
-        connection = kwargs['connection']
+        for dish, amount in dishes:
+            dish = session.query(Dish).filter(Dish.name == dish).fetchone()
 
-        if not user_info:
-            return (self.make_error('Incorrect user ID'), False)
+            if not dish:
+                return self.make_error('You tried to order dish that we haven\'t', 406), False
 
-        try:
-            # -timedelta(hours=3) нужно потому, что при декодинге время увеличивается на 3 часа
-            jwt_token = jwt.decode(user_info[0], 'kamkino', algorithms=['HS256'])
-            expires_at = datetime.fromtimestamp(jwt_token['exp']) - timedelta(hours=3)
-            if expires_at < datetime.now():
-                return (self.make_error('Session token expired, please reauthorize'), False)
-        except jwt.ExpiredSignatureError:
-            return (self.make_error('Session token expired, please reauthorize'), False)
+            if amount <= 0:
+                return self.make_error('You can\'t to order non-positive amount of dish', 406), False
 
-        if not all(dish > 0 for dish in params['dishes'].values()):
-            return (self.make_error('You can\'t to order non-positive amount of dish'), False)
+            if dish.quantity < amount:
+                return self.make_error(f'Unfortunately we haven\'t {amount} of {dish}', 406), False
 
-        for dish, amount in params['dishes'].items():
-            dish_exist = connection.execute(select(self.__dishes.c.quantity).where(self.__dishes.c.name == dish)).fetchone()
-
-            if not dish_exist:
-                return (self.make_error('You tried to order dish that we haven\'t'), False)
-
-            if dish_exist[0] < amount:
-                return (self.make_error('Unfortunely we haven\'t {0} {1}'.format(dish, amount)), False)
-
-        return (True, True)
+        return None, True

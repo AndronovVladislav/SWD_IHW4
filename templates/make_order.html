@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Создание заказа</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-image: url('https://www.rma.ru/upload/iblock/58a/ФОТО%20ВАЙТ%20РЭББИТ%202.jpg');
+            background-size: cover;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            color: white;
+        }
+        form {
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+        }
+        label { display: block; margin-top: 20px; }
+        .orderItem { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <form method="POST">
+        <h1>Make order</h1>
+        <label for="username">Username:</label>
+        <input type="number" id="username" name="username"><br>
+        <label for="special_requests">Special requests:</label>
+        <input type="text" id="special_requests" name="special_requests"><br>
+        <div id="orderItemsContainer">
+            <div class="orderItem">
+                <label for="dish0">Dish name:</label>
+                <input type="text" id="dish0" name="dishes[]">
+                <label for="quantity0">Quantity:</label>
+                <input type="number" id="quantity0" name="quantities[]">
+            </div>
+        </div>
+        <button type="button" onclick="addOrderItem()">Add another dish</button>
+        <br>
+        <input type="submit" value="Создать заказ">
+    </form>
+
+    <script>
+        let orderItemIndex = 1;
+        function addOrderItem() {
+            var orderItemsContainer = document.getElementById('orderItemsContainer');
+            var newOrderItem = document.createElement('div');
+            newOrderItem.className = "orderItem";
+            newOrderItem.innerHTML = `
+                <label for="dish${orderItemIndex}">Dish name:</label>
+                <input type="text" id="dish${orderItemIndex}" name="dishes[]">
+                <label for="quantity${orderItemIndex}">Quantity:</label>
+                <input type="number" id="quantity${orderItemIndex}" name="quantities[]">
+            `;
+            orderItemsContainer.appendChild(newOrderItem);
+            orderItemIndex++;
+        }
+    </script>
+</body>
+</html>

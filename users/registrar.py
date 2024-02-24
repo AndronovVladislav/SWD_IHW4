@@ -1,84 +1,70 @@
-from utils.microservice_component_interface import MicroserviceComponentInterface
+import hashlib
+import uuid
+from typing import Optional
 
-from accessify import private, implements
-from flask import request, make_response
-from sqlalchemy import select, insert
-import uuid, hashlib
+from flask import make_response, redirect, render_template, request, Response
+from sqlalchemy.orm import Session
+
+from users.locals import REGISTER_TEMPLATE
+from users.models import User
+from common.db_manager import DBManager
+from common.microservice_component_interface import MicroserviceComponentInterface
 
 
-@implements(MicroserviceComponentInterface)
-class Registrar(object):
-    def __init__(self, dwh):
-        self.__users = dwh.users
-        self.__engine = dwh.engine
+class RegistrarComponent(MicroserviceComponentInterface):
+    def __init__(self, db_manager: DBManager, signin_url: str):
+        self.db_manager = db_manager
 
-        self.__error_code = 409
-        self.__error_message = 'Error code: {0} - CONFLICT<br>'.format(self.__error_code)
-        self.__post_form = \
-        '''
-        <form method="POST"> 
-            <div><label>Username: <input type="text" name="username"></label></div>
-            <div><label>Email: <input type="text" name="email"></label></div>
-            <div><label>Password: <input type="password" name="password"></label></div>
-            <div><label>Role: <input type="text" name="role"></label></div>
-            <input type="submit" value="Enter">
-        </form>
-        '''
+        self.signin_url = signin_url
 
-    def action(self):
-        if request.method == 'POST':
-            params = request.get_json()
+    def on_execute(self) -> Response:
+        if not request.method == 'POST':
+            return make_response(render_template(REGISTER_TEMPLATE), 200)
 
-            with self.__engine.connect() as connection:
-                connection.begin()
+        username, password, email, role = (request.form.get(k) for k in ('username', 'password', 'email', 'role'))
 
-                error, data_correct = self.validate_data(params=params, connection=connection)
-                if not data_correct:
-                    return error
+        with Session(self.db_manager.engine) as session:
+            if self.user_exists(session, username, email):
+                return redirect(self.signin_url)
 
-                insertion_instruction = insert(self.__users).values(
-                    username = params['username'],
-                    email = params['email'],
-                    password_hash = self.hash_password(params['password']),
-                    role = (params['role'] if params.get('role') else 'customer')
-                )
+            response, data_is_correct = self.validate_data(email, password, role)
 
-                connection.execute(insertion_instruction)
-                connection.commit()
+            if not data_is_correct:
+                return response
 
-            return make_response('New user registered!', 200)
+            new_user = User(username=username,
+                            email=email,
+                            hashed_password=self.hash_password(password),
+                            role=(role if role else 'customer'),
+                            )
 
-        return self.__post_form
+            session.add(new_user)
+            session.commit()
 
-    @private
-    def hash_password(self, password):
+        return make_response('New user registered!', 200)
+
+    @staticmethod
+    def hash_password(password):
         salt = uuid.uuid4().hex.encode()
-        return str(hashlib.sha256(password.encode() + salt).hexdigest()) + ':' + salt.decode()
-    
-    @private
-    def validate_data(self, **kwargs):
-        params = kwargs['params']
-        connection = kwargs['connection']
+        return f'{hashlib.sha256(password.encode() + salt).hexdigest()!s}:{salt.decode()}'
 
-        if connection.execute(select(self.__users.c.username) \
-                                .where(self.__users.c.username == params['username'])) \
-                                .fetchall() or \
-            connection.execute(select(self.__users.c.email) \
-                                .where(self.__users.c.email == params['email'])) \
-                                .fetchall():
-            return (self.make_error('A user with the same name or email already exists'), False)
+    @staticmethod
+    def user_exists(session: Session, username: str, email: str) -> bool:
+        if session.query(User).where(User.username == username, User.email == email).count():
+            return True
 
-        if '@' not in params['email']:
-            return (self.make_error('Invalid email format'), False)
+    def validate_data(self,
+                      email: str,
+                      password: str,
+                      role: str | None = None,
+                      ) -> tuple[Optional[Response], bool]:
+        if '@' not in email:
+            return self.make_error('Invalid email format', 406), False
 
-        if len(params['password']) < 8:
-            return (self.make_error('Too short password'), False)
+        if len(password) < 8:
+            return self.make_error('Too short password', 406), False
 
-        if params.get('role') not in ('customer', 'chef', 'manager', None):
-            return (self.make_error('Invalid role'), False)
+        if role not in ('customer', 'chef', 'manager', None):
+            return self.make_error('Invalid role', 406), False
         
-        return (True, True)
-
-    @private
-    def make_error(self, error_description):
-        return make_response(self.__error_message + error_description, self.__error_code)
+        return None, True

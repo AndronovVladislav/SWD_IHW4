@@ -1,34 +1,54 @@
-from utils.microservice_interface import MicroserviceInterface
-from .registrar import Registrar
-from .authorizer import Authorizer
-from .users_informant import UsersInformant
-from utils.database import DB
+from common.microservice_interface import MicroserviceInterface
+from common.microservice_component_interface import MicroserviceComponentInterface
+from users.registrar import RegistrarComponent
+from users.authorizer import AuthorizerComponent
+from users.users_informant import UsersInformantComponent
 
-from accessify import private, implements
+from common.db_manager import DBManager
 
 
-@implements(MicroserviceInterface)
-class UsersMicroservice:
-    def __init__(self, dialect, user, password, host, port, db, app, **configs):
-        self.__app = app
-        self.__app.config['SQLALCHEMY_DATABASE_URI'] = '{0}+pymysql://{1}:{2}@{3}:{4}/{5}'.format(dialect, user, password, host, port, db)
+class UsersMicroservice(MicroserviceInterface):
+    def __init__(self, app, db_manager: DBManager, **configs):
+        self.app = app
+        self.db_manager = db_manager
 
-        self.__db = DB(dialect, user, password, host, port, db)
+        self.configure(SQLALCHEMY_DATABASE_URI=self.db_manager.settings, **configs)
 
-        self.configure(**configs)
+        self.sign_up_endpoint = '/signup'
+        self.sign_in_endpoint = '/signin'
+        self.get_info_endpoint = '/getinfo'
 
-        self.add_endpoint('/signup', 'signUpPage', Registrar(self.__db).action, methods=['GET', 'POST'])
-        self.add_endpoint('/signin', 'signInPage', Authorizer(self.__db).action, methods=['GET', 'POST'])
-        self.add_endpoint('/getinfo', 'getInformationPage', UsersInformant(self.__db).action, methods=['GET'])
+        self.register_endpoints()
 
-    @private
     def configure(self, **configs):
-        for config, value in configs:
-            self.__app.config[config.upper()] = value
+        self.app.config.update(configs)
 
-    @private
-    def add_endpoint(self, endpoint=None, endpoint_name=None, handler=None, methods=['GET'], *args, **kwargs):
-        self.__app.add_url_rule(endpoint, endpoint_name, handler, methods=methods, *args, **kwargs)
+    def register_endpoints(self):
+        self.add_endpoint(self.sign_up_endpoint,
+                          'signUpPage',
+                          RegistrarComponent(self.db_manager, self.sign_in_endpoint).on_execute,
+                          ['GET', 'POST'],
+                          )
+        self.add_endpoint(self.sign_in_endpoint,
+                          'signInPage',
+                          AuthorizerComponent(self.db_manager, self.sign_up_endpoint).on_execute,
+                          ['GET', 'POST'],
+                          )
+        self.add_endpoint(self.get_info_endpoint,
+                          'getInformationPage',
+                          UsersInformantComponent(self.db_manager).on_execute,
+                          ['GET'],
+                          )
+
+    def add_endpoint(self,
+                     endpoint: str,
+                     endpoint_name: str,
+                     handler: MicroserviceComponentInterface.on_execute,
+                     methods: list[str],
+                     *args,
+                     **kwargs,
+                     ):
+        self.app.add_url_rule(endpoint, endpoint_name, handler, methods=methods, *args, **kwargs)
 
     def run(self, **kwargs):
-        self.__app.run(**kwargs)
+        self.app.run(**kwargs)

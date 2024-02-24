@@ -3,7 +3,7 @@ from time import sleep
 from sqlalchemy.orm import Session
 
 from menu.models import Order, OrderDish
-from menu.locals import STATUS_TRANSITIONS
+from menu.locals import OrderStatus, STATUS_TRANSITIONS
 from common.db_manager import DBManager
 
 
@@ -14,7 +14,8 @@ class OrdersProcessor:
     def on_execute(self) -> None:
         with Session(self.db_manager.engine) as session:
             while True:
-                for order in session.query(Order).filter(Order.status.not_in(('RE', 'CA'))).all():
+                for order in (session.query(Order).filter(Order.status.not_in((OrderStatus.READY, OrderStatus.DELETED)))
+                        .all()):
                     for _ in range(len(STATUS_TRANSITIONS)):
                         sleep(1)
                         next_status = STATUS_TRANSITIONS[order.status]

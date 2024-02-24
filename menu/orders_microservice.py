@@ -1,4 +1,7 @@
 from threading import Thread
+from typing import Callable
+
+from flask import Response
 
 from menu.menu_selector import MenuSelector
 from menu.order_maker import OrderMaker
@@ -13,28 +16,49 @@ from common.db_manager import DBManager
 
 
 class OrdersMicroservice(MicroserviceInterface):
+
     def __init__(self, app, db_manager: DBManager, **configs):
         self.app = app
         self.db_manager = db_manager
 
         self.configure(SQLALCHEMY_DATABASE_URI=self.db_manager.settings, **configs)
 
+        self.get_menu_endpoint = '/getmenu'
+        self.make_order_endpoint = '/makeorder'
+        self.get_order_endpoint = '/getorder'
+        self.create_dish_endpoint = '/createdish'
+        self.remove_dish_endpoint = '/removedish'
+        self.change_price_endpoint = '/changeprice'
+        self.change_quantity_endpoint = '/changequantity'
+
+    def include_in_app(self) -> None:
         orders_processor_thread = Thread(target=OrdersProcessor(self.db_manager).on_execute, args=(), daemon=True)
         orders_processor_thread.start()
 
-        self.add_endpoint('/getmenu', 'getMenu', MenuSelector(self.db_manager).action, methods=['GET'])
-        self.add_endpoint('/makeorder', 'makeOrder', OrderMaker(self.db_manager).on_execute, methods=['POST'])
-        self.add_endpoint('/getorder', 'getOrder', OrderInformant(self.db_manager).action, methods=['GET'])
-        self.add_endpoint('/appenddish', 'appendDish', CreateDish(self.db_manager).action, methods=['POST'])
-        self.add_endpoint('/removedish', 'removeDish', RemoveDish(self.db_manager).action, methods=['DELETE'])
-        self.add_endpoint('/changeprice', 'changePrice', UpdatePrice(self.db_manager).action, methods=['PATCH'])
-        self.add_endpoint('/changequantity', 'changeQuantity', UpdateQuantity(self.db_manager).action, methods=['PATCH'])
+        self.register_endpoints()
 
     def configure(self, **configs):
         self.app.config.update(configs)
 
-    def add_endpoint(self, endpoint=None, endpoint_name=None, handler=None, methods=None, *args, **kwargs):
-        self.app.add_url_rule(endpoint, endpoint_name, handler, methods=methods, *args, **kwargs)
+    def register_endpoints(self):
+        self.add_endpoint(self.get_menu_endpoint, 'getMenu', MenuSelector(self.db_manager).on_execute, ['GET'])
+        self.add_endpoint(self.make_order_endpoint, 'makeOrder', OrderMaker(self.db_manager).on_execute, ['POST'])
+        self.add_endpoint(self.get_order_endpoint, 'getOrder', OrderInformant(self.db_manager).on_execute, ['GET'])
+        self.add_endpoint(self.create_dish_endpoint, 'createDish', CreateDish(self.db_manager).on_execute, ['POST'])
+        self.add_endpoint(self.remove_dish_endpoint, 'removeDish', RemoveDish(self.db_manager).on_execute, ['DELETE'])
+        self.add_endpoint(self.change_price_endpoint, 'changePrice', UpdatePrice(self.db_manager).on_execute, ['PATCH'])
+        self.add_endpoint(self.change_quantity_endpoint,
+                          'changeQuantity',
+                          UpdateQuantity(self.db_manager).on_execute,
+                          ['PATCH'],
+                          )
 
-    def run(self, **kwargs):
-        self.app.run(**kwargs)
+    def add_endpoint(self,
+                     endpoint: str,
+                     endpoint_name: str,
+                     handler: Callable[[...], Response],
+                     methods: list[str],
+                     *args,
+                     **kwargs,
+                     ):
+        self.app.add_url_rule(endpoint, endpoint_name, handler, methods=methods, *args, **kwargs)

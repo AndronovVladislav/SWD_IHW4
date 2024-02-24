@@ -19,5 +19,5 @@ class MicroserviceInterface:
         """Создаёт новый эндпоинт микросервиса"""
 
     @abstractmethod
-    def run(self, **kwargs) -> None:
-        """Запускает микросервис"""
+    def include_in_app(self, *args, **kwargs) -> None:
+        """Внедряет функционал микросервиса в приложение app"""

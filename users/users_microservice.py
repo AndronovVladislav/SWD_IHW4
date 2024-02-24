@@ -1,10 +1,12 @@
+from typing import Callable
+
+from flask import Response
+
+from common.db_manager import DBManager
 from common.microservice_interface import MicroserviceInterface
-from common.microservice_component_interface import MicroserviceComponentInterface
 from users.registrar import RegistrarComponent
 from users.authorizer import AuthorizerComponent
 from users.users_informant import UsersInformantComponent
-
-from common.db_manager import DBManager
 
 
 class UsersMicroservice(MicroserviceInterface):
@@ -18,10 +20,11 @@ class UsersMicroservice(MicroserviceInterface):
         self.sign_in_endpoint = '/signin'
         self.get_info_endpoint = '/getinfo'
 
-        self.register_endpoints()
-
     def configure(self, **configs):
         self.app.config.update(configs)
+
+    def include_in_app(self) -> None:
+        self.register_endpoints()
 
     def register_endpoints(self):
         self.add_endpoint(self.sign_up_endpoint,
@@ -43,7 +46,7 @@ class UsersMicroservice(MicroserviceInterface):
     def add_endpoint(self,
                      endpoint: str,
                      endpoint_name: str,
-                     handler: MicroserviceComponentInterface.on_execute,
+                     handler: Callable[[...], Response],
                      methods: list[str],
                      *args,
                      **kwargs,
